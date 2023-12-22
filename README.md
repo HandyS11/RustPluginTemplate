@@ -1,39 +1,52 @@
-# Features
+# MyPlugin
 
-- Displays some infos
+## 📑 Features
+
 - Be a template for your own plugin
+- Store the last connection time of a player
+- Store the number of death of a player
 
-# Permissions
+## 🔑 Permissions
 
 * `myplugin.admin` - Allows player to use the **/myplugin** command
 
-# Commands
+## 📝 Commands
 
-* `myplugin` - Displays some infos
+* `myplugin help` - Displays some help
 
-# Configuration
+## ⚙️ Configuration
 
 Default configuration:
 
 ```json
 {
-  "Default Chat Avatar": 0,
-  "Enable Custom Plugin": false
+  "Default Chat Avatar (steamId)": 0
 }
 ```
 
-# Localization
+## 🏳️ Localization
 
 Default English localization:
 
 ```json
 {
-  "PluginMissing": "The plugin \"SomePlugin\" was not found. Check on UMod: https://umod.org/plugins/",
+  "PluginMissing": "The plugin \"SomePlugin\" was not found. Check on UMod: https://umod.org/plugins/someplugin",
   "NoPermission": "You are not allowed to run this command!",
-  "Help": "Some useful help!"
+  "HelpMessage": "Some useful help!",
+  "UnknownCommand": "Unknown command!"
 }
 ```
 
-# Credits
+## 🪝 Hooks
 
-* **[HandyS11](https://github.com/HandyS11)** - Author
+```csharp
+[HookMethod("GetLastConnectionTime")]
+DateTime? GetLastConnectionTime(ulong userId)
+
+[HookMethod("GetNumberOfDeath")]
+int? GetNumberOfDeath(ulong userId)
+```
+
+## 🖼️ Credits
+
+* **[YourName](https://github.com/YourName)** - Author

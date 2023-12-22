@@ -1,18 +1,28 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
+
 using Newtonsoft.Json;
+
+using Oxide.Core;
+using Oxide.Core.Configuration;
+using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
+
+using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("MyPlugin", "HandyS11", "1.0.0")]
-    [Description("My custom description")]
+    [Info("MyPlugin", "<author>", "1.0.0")]
+    [Description("<optional description>")]
     internal sealed class MyPlugin : RustPlugin
     {
-
         #region Fields
 
         private Configuration _config;
+
+        private Data _data;
+        private DynamicConfigFile _dataFile;
 
         #endregion
 
@@ -29,26 +39,24 @@ namespace Oxide.Plugins
 
         private sealed class Configuration
         {
-            [JsonProperty(PropertyName = "Default Chat Avatar")]
-            public ulong ChatAvatar { get; set; }
-
-            [JsonProperty(PropertyName = "Enable Custom Plugin")]
-            public bool EnableCustomPlugin { get; set; }
+            [JsonProperty(PropertyName = "Default Chat Avatar (steamId)")]
+            public ulong ChatAvatarId { get; set; }
         }
 
         private Configuration GetDefaultConfig()
         {
             return new Configuration
             {
-                EnableCustomPlugin = false,
+                ChatAvatarId = 0,
             };
         }
+
+        #region Override
 
         protected override void LoadConfig()
         {
             base.LoadConfig();
             _config = Config.ReadObject<Configuration>();
-
             SaveConfig();
         }
 
@@ -63,49 +71,162 @@ namespace Oxide.Plugins
         }
 
         #endregion
+        #endregion
 
-        #region Hooks
+        #region Data
 
-        private void Init()
+        private sealed class Data
         {
-            permission.RegisterPermission(Permission.Admin, this);
+            [JsonProperty(PropertyName = "Players Data")]
+            public Dictionary<ulong, PlayerData> Players { get; set; } = new Dictionary<ulong, PlayerData>();
         }
 
-        private void Loaded()
+        private sealed class PlayerData
         {
-            if (SomePlugin == null)
+            [JsonProperty("Last connection time")]
+            public DateTime LastConnectionTime { get; set; }
+
+            [JsonProperty("Number of death")]
+            public int NumberOfDeath { get; set; }
+        }
+
+        private void CreatePlayerData(ulong playerId, DateTime lastConnectionTime, int numberOfDeath = 0)
+        {
+            _data.Players[playerId] = new PlayerData
             {
-                PrintWarning(GetMessage(MessageKey.NoPermission));
-                _config.EnableCustomPlugin = false;
-            }
+                LastConnectionTime = DateTime.UtcNow,
+                NumberOfDeath = numberOfDeath,
+            };
+            SaveData();
         }
 
-        private void Unload()
+        private PlayerData? GetPlayerData(ulong playerId)
         {
-            _config = null;
+            return _data.Players.GetValueOrDefault(playerId);
+        }
+
+        private void LoadData()
+        {
+            _dataFile = Interface.Oxide.DataFileSystem.GetFile(Name);
+            _data = _dataFile.ReadObject<Data>() ?? new Data();
+        }
+
+        private void SaveData()
+        {
+            _dataFile.WriteObject(_data);
+        }
+
+        private void ClearData()
+        {
+            _data = new Data();
+            SaveData();
         }
 
         #endregion
 
-        #region Functions
+        #region Oxide Hooks
+
+        void Init()
+        {
+            permission.RegisterPermission(Permission.Admin, this);
+            LoadData();
+        }
+
+        void Loaded()
+        {
+            if (SomePluginNameToReference == null)
+            {
+                PrintWarning(GetMessage(MessageKey.NoPermission));
+            }
+        }
+
+        void UnLoad()
+        {
+            SaveData();
+        }
+
+        void OnServerSave()
+        {
+            SaveData();
+        }
+
+        void OnNewSave(string fileName)
+        {
+            ClearData();
+        }
+
+        void OnPlayerConnected(BasePlayer player)
+        {
+            var playerData = GetPlayerData(player.userID);
+            if (playerData != null) playerData.LastConnectionTime = DateTime.Now;
+            else CreatePlayerData(player.userID, DateTime.Now);
+        }
+
+        object? OnPlayerDeath(BasePlayer player, HitInfo info)
+        {
+            var playerData = GetPlayerData(player.userID);
+            if (playerData != null) playerData.NumberOfDeath += 1;
+            else CreatePlayerData(player.userID, DateTime.Now, 1);
+            return null;
+        }
+
+        void OnPlayerDisconnected(BasePlayer player, string reason)
+        {
+            var playerData = GetPlayerData(player.userID);
+            if (playerData != null) playerData.LastConnectionTime = DateTime.Now;
+            else CreatePlayerData(player.userID, DateTime.Now, 0);
+        }
 
         #endregion
 
         #region Helper
 
-        private void SendChatMessage(BasePlayer player, string message)
+        private void SendChatMessage(string message, BasePlayer? player = null)
         {
-            Player.Message(player, message, _config.ChatAvatar);
+            if (player != null) Player.Message(player, message, _config.ChatAvatarId);
+            else Puts(message);
         }
 
         private void SendGlobalChatMessage(string message)
         {
-            Server.Broadcast(message, _config.ChatAvatar);
+            Puts(message);
+            Server.Broadcast(message, _config.ChatAvatarId);
         }
 
         private bool HasPermission(BasePlayer player, string permissionName)
         {
             return permission.UserHasPermission(player.UserIDString, permissionName);
+        }
+
+        private string StripRichText(string? message)
+        {
+            if (message == null) return string.Empty;
+
+            var stringReplacements = new string[]
+            {
+                "<b>", "</b>",
+                "<i>", "</i>",
+                "</size>",
+                "</color>"
+            };
+
+            var regexReplacements = new[]
+            {
+                new Regex(@"<color=.+?>"),
+                new Regex(@"<size=.+?>"),
+            };
+
+            foreach (var replacement in stringReplacements)
+            {
+                message = message.Replace(replacement, string.Empty);
+            }
+
+            foreach (var replacement in regexReplacements)
+            {
+                message = replacement.Replace(message, string.Empty);
+            }
+
+            return Formatter.ToPlaintext(message);
         }
 
         #endregion
@@ -121,33 +242,43 @@ namespace Oxide.Plugins
         [ChatCommand(Command.Prefix)]
         private void ChatCommand(BasePlayer player, string command, string[] args)
         {
-            switch (args[0])
+            if (!HasPermission(player, Permission.Admin))
             {
-                case "help":
-                    SendChatMessage(player, GetMessage(MessageKey.Help, player.UserIDString));
-                    break;
-                default:
-                    SendChatMessage(player, "Hello there!");
-                    break;
+                SendChatMessage(GetMessage(MessageKey.NoPermission), player);
+                return;
             }
+            MainCommand(args, player);
         }
 
         [ConsoleCommand(Command.Prefix)]
-        private void ConsoleCommand(BasePlayer player, string command, string[] args)
+        private void ConsoleCommand(ConsoleSystem.Arg args)
         {
-            if (player.isClient && !HasPermission(player, Permission.Admin))
+            if (args.IsClientside && !HasPermission(args.Player(), Permission.Admin))
             {
-                SendChatMessage(player, GetMessage(MessageKey.NoPermission, player.UserIDString));
+                Puts(GetMessage(MessageKey.NoPermission, args.Player().UserIDString));
                 return;
             }
+            MainCommand(args.Args, args.Player());
+        }
 
+        private void MainCommand(string[] args, BasePlayer? player = null)
+        {
+            if (args == null) throw new ArgumentNullException(nameof(args));
+            if (args.Length == 0)
+            {
+                if (player != null) SendChatMessage(GetMessage(MessageKey.HelpMessage, player.UserIDString), player);
+                else Puts(GetMessage(MessageKey.HelpMessage));
+                return;
+            }
             switch (args[0])
             {
-                case "help":
-                    Puts(GetMessage(MessageKey.Help, player.UserIDString));
+                case Command.Help:
+                    if (player != null) SendChatMessage(GetMessage(MessageKey.HelpMessage, player.UserIDString), player);
+                    else Puts(GetMessage(MessageKey.HelpMessage));
                     break;
                 default:
-                    Puts("Hello there!");
+                    if (player != null) SendChatMessage(GetMessage(MessageKey.UnknownCommand, player.UserIDString), player);
+                    else Puts(GetMessage(MessageKey.UnknownCommand));
                     break;
             }
         }
@@ -158,22 +289,29 @@ namespace Oxide.Plugins
 
         private static class MessageKey
         {
-            public const string PluginMissing = "PluginMissing";
+            public const string HelpMessage = "HelpMessage";
             public const string NoPermission = "NoPermission";
-            public const string Help = "Help";
+            public const string PluginMissing = "PluginMissing";
+            public const string UnknownCommand = "UnknownCommand";
         }
 
         protected override void LoadDefaultMessages()
         {
             lang.RegisterMessages(new Dictionary<string, string>
             {
-                [MessageKey.PluginMissing] = "The plugin \"SomePlugin\" was not found. Check on UMod: https://umod.org/plugins/",
+                [MessageKey.PluginMissing] = "The plugin \"SomePlugin\" was not found. Check on UMod: https://umod.org/plugins/someplugin",
                 [MessageKey.NoPermission] = "You are not allowed to run this command!",
-                [MessageKey.Help] = "Some useful help!",
+                [MessageKey.HelpMessage] = "Some useful help!",
+                [MessageKey.UnknownCommand] = "Unknown command!",
             }, this);
         }
 
-        private string GetMessage(string messageKey, string playerId = null, params object[] data)
+        private string GetMessage(string messageKey, string? playerId = null)
+        {
+            return lang.GetMessage(messageKey, this, playerId);
+        }
+
+        private string GetCustomMessage(string messageKey, string? playerId = null, params object[] data)
         {
             try
             {
@@ -189,18 +327,26 @@ namespace Oxide.Plugins
 
         #endregion
 
+        #region API
+
         #region Internal API
 
-        public bool IsReady() => false;
+        [HookMethod("GetLastConnectionTime")]
+        public DateTime? GetLastConnectionTime(ulong userId)
+            => GetPlayerData(userId)?.LastConnectionTime;
 
+        [HookMethod("GetNumberOfDeath")]
+        public int? GetNumberOfDeath(ulong userId)
+            => GetPlayerData(userId)?.NumberOfDeath;
 
-        #endregion Internal API
+        #endregion
 
         #region External API
 
         [PluginReference]
-        Plugin SomePlugin;
+        Plugin SomePluginNameToReference;
 
-        #endregion External API
+        #endregion
+        #endregion
     }
 }
