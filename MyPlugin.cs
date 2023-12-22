@@ -94,7 +94,7 @@ namespace Oxide.Plugins
         {
             _data.Players[playerId] = new PlayerData
             {
-                LastConnectionTime = DateTime.UtcNow,
+                LastConnectionTime = lastConnectionTime,
                 NumberOfDeath = numberOfDeath,
             };
             SaveData();
