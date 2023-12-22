@@ -40,11 +40,11 @@ Default English localization:
 ## 🪝 Hooks
 
 ```csharp
-[HookMethod("GetLastConnectionTime")]
 DateTime? GetLastConnectionTime(ulong userId)
+// Return the last connection time (DateTime?) of a player or null if the player is not found
 
-[HookMethod("GetNumberOfDeath")]
 int? GetNumberOfDeath(ulong userId)
+// Return the number (int?) of death of a player or null if the player is not found
 ```
 
 ## 🖼️ Credits
