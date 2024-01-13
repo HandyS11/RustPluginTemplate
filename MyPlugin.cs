@@ -102,7 +102,8 @@ namespace Oxide.Plugins
 
         private PlayerData? GetPlayerData(ulong playerId)
         {
-            return _data.Players.GetValueOrDefault(playerId);
+            _data.Players.TryGetValue(playerId, out var p);
+            return p;
         }
 
         private void LoadData()
