@@ -9,8 +9,6 @@ using Oxide.Core.Configuration;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
 
-using UnityEngine;
-
 namespace Oxide.Plugins
 {
     [Info("MyPlugin", "<author>", "1.0.0")]
@@ -133,11 +131,16 @@ namespace Oxide.Plugins
             LoadData();
         }
 
+        void OnServerInitialized()
+        {
+            AddCovalenceCommand(Command.Prefix, nameof(SendWipeCommand));
+        }
+
         void Loaded()
         {
             if (SomePluginNameToReference == null)
             {
-                PrintWarning(GetMessage(MessageKey.NoPermission));
+                PrintWarning(GetMessage(MessageKey.PluginMissing));
             }
         }
 
@@ -194,10 +197,8 @@ namespace Oxide.Plugins
             Server.Broadcast(message, _config.ChatAvatarId);
         }
 
-        private bool HasPermission(BasePlayer player, string permissionName)
-        {
-            return permission.UserHasPermission(player.UserIDString, permissionName);
-        }
+        private bool HasPermission(IPlayer player, string perm)
+            => permission.UserHasPermission(player.Id, perm);
 
         private string StripRichText(string? message)
         {
@@ -240,48 +241,29 @@ namespace Oxide.Plugins
             public const string Help = "help";
         }
 
-        [ChatCommand(Command.Prefix)]
-        private void ChatCommand(BasePlayer player, string command, string[] args)
-        {
-            if (!HasPermission(player, Permission.Admin))
-            {
-                SendChatMessage(GetMessage(MessageKey.NoPermission), player);
-                return;
-            }
-            MainCommand(args, player);
-        }
-
-        [ConsoleCommand(Command.Prefix)]
-        private void ConsoleCommand(ConsoleSystem.Arg args)
-        {
-            if (args.IsClientside && !HasPermission(args.Player(), Permission.Admin))
-            {
-                Puts(GetMessage(MessageKey.NoPermission, args.Player().UserIDString));
-                return;
-            }
-            MainCommand(args.Args, args.Player());
-        }
-
-        private void MainCommand(string[] args, BasePlayer? player = null)
+        private bool SendWipeCommand(IPlayer player, string cmd, string[] args)
         {
             if (args == null) throw new ArgumentNullException(nameof(args));
+            if (!HasPermission(player, Permission.Admin))
+            {
+                player.Message(GetMessage(MessageKey.NoPermission));
+                return true;
+            }
             if (args.Length == 0)
             {
-                if (player != null) SendChatMessage(GetMessage(MessageKey.HelpMessage, player.UserIDString), player);
-                else Puts(GetMessage(MessageKey.HelpMessage));
-                return;
+                player.Message(GetMessage(MessageKey.HelpMessage));
+                return true;
             }
             switch (args[0])
             {
                 case Command.Help:
-                    if (player != null) SendChatMessage(GetMessage(MessageKey.HelpMessage, player.UserIDString), player);
-                    else Puts(GetMessage(MessageKey.HelpMessage));
+                    player.Message(GetMessage(MessageKey.HelpMessage));
                     break;
                 default:
-                    if (player != null) SendChatMessage(GetMessage(MessageKey.UnknownCommand, player.UserIDString), player);
-                    else Puts(GetMessage(MessageKey.UnknownCommand));
+                    player.Message(GetMessage(MessageKey.UnknownCommand));
                     break;
             }
+            return true;
         }
 
         #endregion
@@ -345,7 +327,7 @@ namespace Oxide.Plugins
         #region External API
 
         [PluginReference]
-        Plugin SomePluginNameToReference;
+        Plugin? SomePluginNameToReference;
 
         #endregion
         #endregion
